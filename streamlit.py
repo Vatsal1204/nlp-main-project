@@ -92,12 +92,12 @@ def get_db_schema():
     existing_tables = [row[0] for row in cursor.fetchall()]
     
     for table in tables:
-        table_info[table] = []
+        table_info[table] = {"columns": [], "row_count": 0}
         
         # Check if table exists
         if table not in existing_tables:
             schema += f"Table '{table}': Table does not exist yet\n\n"
-            table_info[table].append({"row_count": 0})
+            table_info[table]["row_count"] = 0
             continue
             
         # Get column info
@@ -106,7 +106,7 @@ def get_db_schema():
         
         if not columns:
             schema += f"Table '{table}': No columns found\n\n"
-            table_info[table].append({"row_count": 0})
+            table_info[table]["row_count"] = 0
             continue
             
         col_names = [col[1] for col in columns]
@@ -115,17 +115,17 @@ def get_db_schema():
         schema += f"Table '{table}':\n"
         for name, type_ in zip(col_names, col_types):
             schema += f"  - {name} ({type_})\n"
-            table_info[table].append({"name": name, "type": type_})
+            table_info[table]["columns"].append({"name": name, "type": type_})
         
         # Get row count (with error handling)
         try:
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
             count = cursor.fetchone()[0]
             schema += f"  → {count} rows\n\n"
-            table_info[table].append({"row_count": count})
+            table_info[table]["row_count"] = count
         except:
             schema += f"  → Unable to count rows\n\n"
-            table_info[table].append({"row_count": 0})
+            table_info[table]["row_count"] = 0
     
     conn.close()
     return schema, table_info
@@ -407,14 +407,14 @@ def main():
             # Display table info
             for table, info in table_info.items():
                 with st.expander(f"📋 {table.upper()}"):
-                    cols = [col for col in info if isinstance(col, dict)]
-                    for col in cols[:5]:  # Show first 5 columns
+                    # Display columns
+                    for col in info["columns"]:
                         st.write(f"• {col['name']} ({col['type']})")
-                    row_count = next((item for item in info if 'row_count' in item), None)
-                    if row_count and row_count['row_count'] > 0:
-                        st.write(f"**Rows:** {row_count['row_count']:,}")
+                    # Display row count
+                    if info["row_count"] > 0:
+                        st.write(f"**Rows:** {info['row_count']:,}")
                     else:
-                        st.write("**Rows:** 0 (building...)")
+                        st.write("**Rows:** 0")
         else:
             schema = "Database is being built..."
             table_info = {}
