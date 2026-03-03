@@ -12,24 +12,36 @@ def download_stock_data():
     print("📥 Downloading stock data...")
     
     tickers = ["AAPL", "GOOGL", "MSFT", "TSLA", "AMZN", "META", "NVDA"]
-    
     all_data = []
+    
     for ticker in tickers:
-        df = yf.download(ticker, start="2020-01-01", end="2024-12-31", 
-                        progress=False, auto_adjust=True)
-        # Flatten multi-level columns
-        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-        # Keep only needed columns
-        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-        df["Ticker"] = ticker
-        df.reset_index(inplace=True)
-        df.rename(columns={"index": "Date"}, inplace=True)
-        all_data.append(df)
+        try:
+            # Add timeout and progress
+            df = yf.download(ticker, start="2020-01-01", end="2024-12-31", 
+                            progress=False, auto_adjust=True, timeout=10)
+            
+            if df.empty:
+                print(f"⚠️ No data for {ticker}, skipping")
+                continue
+                
+            # Flatten multi-level columns
+            df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+            df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+            df["Ticker"] = ticker
+            df.reset_index(inplace=True)
+            all_data.append(df)
+            print(f"  ✅ {ticker}: {len(df)} rows")
+            
+        except Exception as e:
+            print(f"  ❌ Error downloading {ticker}: {e}")
+            continue
+    
+    if not all_data:
+        raise Exception("No data downloaded for any ticker")
     
     stocks_df = pd.concat(all_data, ignore_index=True)
-    # Final check - drop any duplicate columns
     stocks_df = stocks_df.loc[:, ~stocks_df.columns.duplicated()]
-    print(f"✅ Downloaded {len(stocks_df)} stock records")
+    print(f"✅ Total: {len(stocks_df)} stock records")
     return stocks_df
 
 def create_company_data():
@@ -101,4 +113,5 @@ def verify_database():
 
 if __name__ == "__main__":
     build_database()
+
     verify_database()
