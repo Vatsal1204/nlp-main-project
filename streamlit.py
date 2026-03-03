@@ -73,11 +73,13 @@ if 'query_history' not in st.session_state:
     st.session_state.query_history = []
 if 'client' not in st.session_state:
     st.session_state.client = None
+if 'db_initialized' not in st.session_state:
+    st.session_state.db_initialized = False
 
 # Database functions
 @st.cache_data(ttl=3600)
 def get_db_schema():
-    """Get database schema for context"""
+    """Get database schema for context with existence checks"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -85,23 +87,45 @@ def get_db_schema():
     tables = ["stocks", "companies", "earnings"]
     table_info = {}
     
+    # First check which tables actually exist
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    existing_tables = [row[0] for row in cursor.fetchall()]
+    
     for table in tables:
+        table_info[table] = []
+        
+        # Check if table exists
+        if table not in existing_tables:
+            schema += f"Table '{table}': Table does not exist yet\n\n"
+            table_info[table].append({"row_count": 0})
+            continue
+            
+        # Get column info
         cursor.execute(f"PRAGMA table_info({table})")
         columns = cursor.fetchall()
+        
+        if not columns:
+            schema += f"Table '{table}': No columns found\n\n"
+            table_info[table].append({"row_count": 0})
+            continue
+            
         col_names = [col[1] for col in columns]
         col_types = [col[2] for col in columns]
         
         schema += f"Table '{table}':\n"
-        table_info[table] = []
         for name, type_ in zip(col_names, col_types):
             schema += f"  - {name} ({type_})\n"
             table_info[table].append({"name": name, "type": type_})
         
-        # Get row count
-        cursor.execute(f"SELECT COUNT(*) FROM {table}")
-        count = cursor.fetchone()[0]
-        schema += f"  → {count} rows\n\n"
-        table_info[table].append({"row_count": count})
+        # Get row count (with error handling)
+        try:
+            cursor.execute(f"SELECT COUNT(*) FROM {table}")
+            count = cursor.fetchone()[0]
+            schema += f"  → {count} rows\n\n"
+            table_info[table].append({"row_count": count})
+        except:
+            schema += f"  → Unable to count rows\n\n"
+            table_info[table].append({"row_count": 0})
     
     conn.close()
     return schema, table_info
@@ -109,10 +133,19 @@ def get_db_schema():
 @st.cache_data(ttl=300)
 def get_table_preview(table_name, limit=10):
     """Get preview of table data"""
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query(f"SELECT * FROM {table_name} LIMIT {limit}", conn)
-    conn.close()
-    return df
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        # Check if table exists
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+        if not cursor.fetchone():
+            conn.close()
+            return pd.DataFrame()
+        df = pd.read_sql_query(f"SELECT * FROM {table_name} LIMIT {limit}", conn)
+        conn.close()
+        return df
+    except Exception as e:
+        return pd.DataFrame()
 
 def run_query(sql):
     """Execute SQL on database"""
@@ -316,6 +349,7 @@ def build_database():
         st.success(f"✅ Earnings table created with {len(earnings)} records")
         
         conn.close()
+        st.session_state.db_initialized = True
         return True
         
     except Exception as e:
@@ -344,20 +378,47 @@ def main():
                 else:
                     st.error("❌ Database build failed")
                     st.stop()
+        else:
+            # Verify database has tables
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                tables = cursor.fetchall()
+                conn.close()
+                
+                if not tables:
+                    st.warning("⚠️ Database exists but no tables found. Rebuilding...")
+                    os.remove(DB_PATH)
+                    st.rerun()
+                else:
+                    st.session_state.db_initialized = True
+            except Exception as e:
+                st.warning("⚠️ Database corrupt. Rebuilding...")
+                if os.path.exists(DB_PATH):
+                    os.remove(DB_PATH)
+                st.rerun()
         
-        # Load schema
-        with st.spinner("Loading database schema..."):
-            schema, table_info = get_db_schema()
-        
-        # Display table info
-        for table, info in table_info.items():
-            with st.expander(f"📋 {table.upper()}"):
-                cols = [col for col in info if isinstance(col, dict)]
-                for col in cols[:5]:  # Show first 5 columns
-                    st.write(f"• {col['name']} ({col['type']})")
-                row_count = next((item for item in info if 'row_count' in item), None)
-                if row_count:
-                    st.write(f"**Rows:** {row_count['row_count']:,}")
+        # Only load schema if database is initialized
+        if st.session_state.db_initialized:
+            with st.spinner("Loading database schema..."):
+                schema, table_info = get_db_schema()
+            
+            # Display table info
+            for table, info in table_info.items():
+                with st.expander(f"📋 {table.upper()}"):
+                    cols = [col for col in info if isinstance(col, dict)]
+                    for col in cols[:5]:  # Show first 5 columns
+                        st.write(f"• {col['name']} ({col['type']})")
+                    row_count = next((item for item in info if 'row_count' in item), None)
+                    if row_count and row_count['row_count'] > 0:
+                        st.write(f"**Rows:** {row_count['row_count']:,}")
+                    else:
+                        st.write("**Rows:** 0 (building...)")
+        else:
+            schema = "Database is being built..."
+            table_info = {}
+            st.info("⏳ Database is being initialized...")
         
         # API Key status
         st.divider()
@@ -378,104 +439,122 @@ def main():
                 st.write(f"{i+1}. {q}")
     
     # Main content area
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Stocks", "7 Companies", "AAPL, MSFT, GOOGL, etc.")
-    with col2:
-        st.metric("Data Range", "2020-2024", "5 Years")
-    with col3:
-        st.metric("Tables", "3", "stocks, companies, earnings")
-    
-    # Query input
-    st.divider()
-    st.subheader("💬 Ask a Question")
-    
-    # Example questions
-    example_questions = [
-        "What is the average closing price of AAPL in 2023?",
-        "Which company has the highest revenue?",
-        "What was Tesla's EPS in Q1 2023?",
-        "How many companies are in the Tech sector?",
-        "Compare the average closing price of AAPL and MSFT in 2023",
-        "Which stock had the highest trading volume in 2023?"
-    ]
-    
-    selected_example = st.selectbox("Try an example:", [""] + example_questions)
-    
-    # Text input
-    question = st.text_area("Or type your own question:", 
-                           value=selected_example if selected_example else "",
-                           height=100,
-                           placeholder="e.g., What is the total volume for MSFT in 2023?")
-    
-    # Query button
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        run_button = st.button("🚀 Run Query", use_container_width=True)
-    
-    # Process query
-    if run_button and question:
-        if not st.session_state.client:
-            st.error("❌ Groq API not configured. Please check your API key.")
-            return
+    if st.session_state.db_initialized:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Stocks", "7 Companies", "AAPL, MSFT, GOOGL, etc.")
+        with col2:
+            st.metric("Data Range", "2020-2024", "5 Years")
+        with col3:
+            st.metric("Tables", "3", "stocks, companies, earnings")
         
-        with st.spinner("🔄 Generating SQL and fetching results..."):
-            # Generate SQL
-            sql, error = generate_sql(question, st.session_state.client, schema)
-            
-            if error:
-                st.error(f"❌ Error generating SQL: {error}")
+        # Query input
+        st.divider()
+        st.subheader("💬 Ask a Question")
+        
+        # Example questions
+        example_questions = [
+            "What is the average closing price of AAPL in 2023?",
+            "Which company has the highest revenue?",
+            "What was Tesla's EPS in Q1 2023?",
+            "How many companies are in the Tech sector?",
+            "Compare the average closing price of AAPL and MSFT in 2023",
+            "Which stock had the highest trading volume in 2023?"
+        ]
+        
+        selected_example = st.selectbox("Try an example:", [""] + example_questions)
+        
+        # Text input
+        question = st.text_area("Or type your own question:", 
+                               value=selected_example if selected_example else "",
+                               height=100,
+                               placeholder="e.g., What is the total volume for MSFT in 2023?")
+        
+        # Query button
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            run_button = st.button("🚀 Run Query", use_container_width=True)
+        
+        # Process query
+        if run_button and question:
+            if not st.session_state.client:
+                st.error("❌ Groq API not configured. Please check your API key.")
             else:
-                # Show generated SQL
-                with st.expander("📝 Generated SQL", expanded=True):
-                    st.code(sql, language="sql")
-                
-                # Run query
-                result_df, db_error = run_query(sql)
-                
-                if db_error:
-                    st.error(f"❌ Database error: {db_error}")
-                else:
-                    # Add to history
-                    st.session_state.query_history.append(question)
+                with st.spinner("🔄 Generating SQL and fetching results..."):
+                    # Generate SQL
+                    sql, error = generate_sql(question, st.session_state.client, schema)
                     
-                    # Show results
-                    st.success(f"✅ Query executed successfully! Found {len(result_df)} rows.")
-                    
-                    # Display results in tabs
-                    tab1, tab2 = st.tabs(["📊 Results", "📈 Visualization"])
-                    
-                    with tab1:
-                        st.dataframe(result_df, use_container_width=True)
+                    if error:
+                        st.error(f"❌ Error generating SQL: {error}")
+                    else:
+                        # Show generated SQL
+                        with st.expander("📝 Generated SQL", expanded=True):
+                            st.code(sql, language="sql")
                         
-                        # Download button
-                        csv = result_df.to_csv(index=False)
-                        st.download_button(
-                            label="📥 Download as CSV",
-                            data=csv,
-                            file_name=f"query_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv"
-                        )
-                    
-                    with tab2:
-                        fig = create_visualization(result_df, question)
-                        if fig:
-                            st.plotly_chart(fig, use_container_width=True)
+                        # Run query
+                        result_df, db_error = run_query(sql)
+                        
+                        if db_error:
+                            st.error(f"❌ Database error: {db_error}")
                         else:
-                            st.info("ℹ️ No visualization available for this data type")
-    
-    # Data preview section
-    with st.expander("🔍 Preview Data Tables"):
-        tab1, tab2, tab3 = st.tabs(["Stocks", "Companies", "Earnings"])
+                            # Add to history
+                            st.session_state.query_history.append(question)
+                            
+                            # Show results
+                            st.success(f"✅ Query executed successfully! Found {len(result_df)} rows.")
+                            
+                            # Display results in tabs
+                            tab1, tab2 = st.tabs(["📊 Results", "📈 Visualization"])
+                            
+                            with tab1:
+                                st.dataframe(result_df, use_container_width=True)
+                                
+                                # Download button
+                                csv = result_df.to_csv(index=False)
+                                st.download_button(
+                                    label="📥 Download as CSV",
+                                    data=csv,
+                                    file_name=f"query_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv"
+                                )
+                            
+                            with tab2:
+                                fig = create_visualization(result_df, question)
+                                if fig:
+                                    st.plotly_chart(fig, use_container_width=True)
+                                else:
+                                    st.info("ℹ️ No visualization available for this data type")
         
-        with tab1:
-            st.dataframe(get_table_preview("stocks"), use_container_width=True)
-        
-        with tab2:
-            st.dataframe(get_table_preview("companies"), use_container_width=True)
-        
-        with tab3:
-            st.dataframe(get_table_preview("earnings"), use_container_width=True)
+        # Data preview section
+        with st.expander("🔍 Preview Data Tables"):
+            tab1, tab2, tab3 = st.tabs(["Stocks", "Companies", "Earnings"])
+            
+            with tab1:
+                df = get_table_preview("stocks")
+                if not df.empty:
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("Stocks table is being built...")
+            
+            with tab2:
+                df = get_table_preview("companies")
+                if not df.empty:
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("Companies table is being built...")
+            
+            with tab3:
+                df = get_table_preview("earnings")
+                if not df.empty:
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("Earnings table is being built...")
+    else:
+        st.info("⏳ Database is being initialized. Please wait...")
+        with st.spinner("Building database (this will take 1-2 minutes)..."):
+            if os.path.exists(DB_PATH):
+                st.session_state.db_initialized = True
+                st.rerun()
     
     # Footer
     st.divider()
