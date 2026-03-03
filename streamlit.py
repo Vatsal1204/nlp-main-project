@@ -1,6 +1,7 @@
 import sys
 import traceback
 
+# Import everything at the top - ONCE
 try:
     import streamlit as st
     import pandas as pd
@@ -16,17 +17,40 @@ except Exception as e:
     print("IMPORT ERROR:", e)
     print(traceback.format_exc())
     raise e
-import os
-import sqlite3
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-from datetime import datetime
+
+# Load environment variables
+load_dotenv()
 
 # Database path
 DB_PATH = "data/finance.db"
 
-# Function to build database directly (no imports needed)
+# Page configuration - MUST BE THE FIRST STREAMLIT COMMAND
+st.set_page_config(
+    page_title="Financial NLP Query Engine",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1E88E5;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .sub-header {
+        font-size: 1.2rem;
+        color: #424242;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Function to build database directly
 def build_database():
     """Build database directly in the app"""
     
@@ -46,11 +70,12 @@ def build_database():
         for i, ticker in enumerate(tickers):
             try:
                 df = yf.download(ticker, start="2020-01-01", end="2024-12-31", 
-                                progress=False, auto_adjust=True)
+                                progress=False, auto_adjust=True, timeout=10)
                 
                 if not df.empty:
                     # Flatten columns
-                    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = [col[0] for col in df.columns]
                     df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
                     df["Ticker"] = ticker
                     df.reset_index(inplace=True)
@@ -60,6 +85,7 @@ def build_database():
                 progress_bar.progress((i + 1) / len(tickers))
             except Exception as e:
                 st.warning(f"⚠️ Could not download {ticker}: {e}")
+                progress_bar.progress((i + 1) / len(tickers))
         
         if all_data:
             stocks_df = pd.concat(all_data, ignore_index=True)
@@ -102,15 +128,27 @@ def build_database():
         conn.close()
         return False
 
-# Check and build database
-if not os.path.exists(DB_PATH):
-    st.warning("⚠️ Database not found. Building it now...")
-    with st.spinner("Building database (this will take 1-2 minutes)..."):
-        success = build_database()
-        if success:
-            st.success("✅ Database built successfully! Refreshing...")
-            st.rerun()
-        else:
-            st.error("❌ Failed to build database. Please check the error above.")
-            st.stop()
+# Main app
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">📊 Financial NLP Query Engine</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Ask questions about stock data in plain English</p>', unsafe_allow_html=True)
+    
+    # Check and build database
+    if not os.path.exists(DB_PATH):
+        st.warning("⚠️ Database not found. Building it now...")
+        with st.spinner("Building database (this will take 1-2 minutes)..."):
+            success = build_database()
+            if success:
+                st.success("✅ Database built successfully! Refreshing...")
+                st.rerun()
+            else:
+                st.error("❌ Failed to build database. Please check the error above.")
+                st.stop()
+    
+    # Rest of your app UI here
+    st.success("✅ Database is ready! Add your query interface here.")
 
+# Run the app
+if __name__ == "__main__":
+    main()
