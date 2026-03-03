@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+myenv/
+
+# Data files
+data/finance.db
+*.db
+*.sqlite
+*.sqlite3
+*.csv
+*.xlsx
+*.parquet
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit secrets
+.streamlit/secrets.toml
+.env
+
+# Notebooks
+*.ipynb
