@@ -80,43 +80,12 @@ DB_PATH = "data/finance.db"
 
 # Function to check and build database
 def check_and_build_database():
-    """Build database if it doesn't exist"""
     if not os.path.exists(DB_PATH):
-        st.warning("⏳ First-time setup: Building database. This may take 30-60 seconds...")
-        
-        # Create data folder
-        os.makedirs("data", exist_ok=True)
-        
-        try:
-            # Import your dataset functions
-            from dataset import download_stock_data, create_company_data, create_earnings_data
-            
-            # Build database
-            conn = sqlite3.connect(DB_PATH)
-            
-            with st.spinner("📥 Downloading stock data..."):
-                stocks_df = download_stock_data()
-                stocks_df.to_sql("stocks", conn, if_exists="replace", index=False)
-            
-            with st.spinner("🏢 Creating company data..."):
-                companies_df = create_company_data()
-                companies_df.to_sql("companies", conn, if_exists="replace", index=False)
-            
-            with st.spinner("📊 Creating earnings data..."):
-                earnings_df = create_earnings_data()
-                earnings_df.to_sql("earnings", conn, if_exists="replace", index=False)
-            
-            conn.close()
-            st.success("✅ Database built successfully!")
-            st.rerun()  # Restart the app to use the new database
-            
-        except Exception as e:
-            st.error(f"❌ Error building database: {e}")
-            st.stop()
-
-# Check database at startup
-check_and_build_database()
-@st.cache_data(ttl=3600)
+        st.warning("⏳ Building sample database...")
+        import build_sample_db
+        build_sample_db.build_sample_database()
+        st.success("✅ Database ready!")
+        st.rerun()
 def get_db_schema():
     """Get database schema for context"""
     conn = sqlite3.connect(DB_PATH)
@@ -443,3 +412,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
