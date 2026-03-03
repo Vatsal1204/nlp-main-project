@@ -26,10 +26,10 @@ companies_df.to_sql("companies", conn, index=False, if_exists="replace")
 
 # 2. Earnings table
 earnings_data = {
-    "Ticker": ["AAPL", "AAPL", "AAPL", "AAPL", "MSFT", "MSFT", "TSLA", "TSLA"],
-    "Quarter": ["Q1-2023", "Q2-2023", "Q3-2023", "Q4-2023", "Q1-2023", "Q2-2023", "Q1-2023", "Q2-2023"],
-    "EPS": [1.52, 1.26, 1.46, 2.18, 2.45, 2.69, 0.85, 0.91],
-    "Revenue_B": [117.2, 94.8, 89.5, 119.6, 52.7, 56.2, 23.3, 24.9]
+    "Ticker": ["AAPL", "AAPL", "AAPL", "AAPL", "MSFT", "MSFT", "TSLA", "TSLA", "GOOGL", "GOOGL"],
+    "Quarter": ["Q1-2023", "Q2-2023", "Q3-2023", "Q4-2023", "Q1-2023", "Q2-2023", "Q1-2023", "Q2-2023", "Q1-2023", "Q2-2023"],
+    "EPS": [1.52, 1.26, 1.46, 2.18, 2.45, 2.69, 0.85, 0.91, 1.17, 1.44],
+    "Revenue_B": [117.2, 94.8, 89.5, 119.6, 52.7, 56.2, 23.3, 24.9, 69.8, 74.6]
 }
 earnings_df = pd.DataFrame(earnings_data)
 earnings_df.to_sql("earnings", conn, index=False, if_exists="replace")
@@ -58,59 +58,55 @@ tab1, tab2, tab3 = st.tabs(["📊 Companies", "💰 Earnings", "🔍 Query"])
 with tab1:
     st.subheader("Companies Data")
     st.dataframe(companies_df, use_container_width=True)
-    
-    # Simple filters
-    col1, col2 = st.columns(2)
-    with col1:
-        sectors = st.multiselect("Filter by Sector", options=companies_df["Sector"].unique())
-        if sectors:
-            filtered = companies_df[companies_df["Sector"].isin(sectors)]
-            st.dataframe(filtered, use_container_width=True)
-    with col2:
-        min_revenue = st.slider("Min Revenue (B$)", 0, 600, 0)
-        filtered2 = companies_df[companies_df["Revenue_B"] >= min_revenue]
-        st.dataframe(filtered2, use_container_width=True)
 
 with tab2:
     st.subheader("Earnings Data")
     st.dataframe(earnings_df, use_container_width=True)
-    
-    # Filter by ticker
-    ticker = st.selectbox("Select Ticker", options=earnings_df["Ticker"].unique())
-    if ticker:
-        filtered = earnings_df[earnings_df["Ticker"] == ticker]
-        st.dataframe(filtered, use_container_width=True)
 
 with tab3:
     st.subheader("Ask a Question")
-    st.write("Example questions:")
-    st.write("- Show all tech companies")
-    st.write("- Which company has the highest revenue?")
-    st.write("- What was Tesla's EPS in Q1 2023?")
+    st.write("**Try these example questions:**")
+    st.write("1. Show all tech companies")
+    st.write("2. Which company has the highest revenue?")
+    st.write("3. What was Tesla's EPS in Q1 2023?")
+    st.write("4. Show me Amazon's data")
+    st.write("5. What is Microsoft's market cap?")
     
     question = st.text_input("Your question:")
     
     if st.button("Run Query") and question:
         question_lower = question.lower()
         
+        # Question 1: Show all tech companies
         if "tech" in question_lower and "company" in question_lower:
             result = companies_df[companies_df["Sector"] == "Tech"]
-            st.success(f"Found {len(result)} tech companies")
+            st.success(f"✅ Found {len(result)} tech companies")
             st.dataframe(result)
-            
+        
+        # Question 2: Which company has the highest revenue?
         elif "highest revenue" in question_lower:
-            result = companies_df.nlargest(1, "Revenue_B")
-            st.success("Company with highest revenue:")
+            result = companies_df.nlargest(1, "Revenue_B")[["Company", "Revenue_B"]]
+            st.success("✅ Company with highest revenue:")
             st.dataframe(result)
-            
-        elif "tesla" in question_lower and "eps" in question_lower and "q1 2023" in question_lower:
-            result = earnings_df[(earnings_df["Ticker"] == "TSLA") & (earnings_df["Quarter"] == "Q1-2023")]
-            st.success("Tesla EPS Q1 2023:")
+        
+        # Question 3: Tesla's EPS in Q1 2023
+        elif "tesla" in question_lower and "eps" in question_lower and "q1" in question_lower:
+            result = earnings_df[(earnings_df["Ticker"] == "TSLA") & (earnings_df["Quarter"] == "Q1-2023")][["EPS", "Revenue_B"]]
+            st.success("✅ Tesla Q1 2023 EPS:")
             st.dataframe(result)
-            
-        elif "total" in question_lower and "revenue" in question_lower:
-            total = companies_df["Revenue_B"].sum()
-            st.metric("Total Revenue (B$)", f"{total:,.0f}")
-            
+        
+        # Show specific company data
+        elif "amazon" in question_lower:
+            result = companies_df[companies_df["Company"] == "Amazon"]
+            st.success("✅ Amazon data:")
+            st.dataframe(result)
+        
+        # Microsoft market cap
+        elif "microsoft" in question_lower and "market cap" in question_lower:
+            result = companies_df[companies_df["Company"] == "Microsoft"][["Company", "Market_Cap_B"]]
+            st.success("✅ Microsoft Market Cap:")
+            st.dataframe(result)
+        
+        # Default response
         else:
             st.info("Try one of the example questions above!")
