@@ -75,6 +75,8 @@ if 'client' not in st.session_state:
     st.session_state.client = None
 if 'db_initialized' not in st.session_state:
     st.session_state.db_initialized = False
+if 'api_key_checked' not in st.session_state:
+    st.session_state.api_key_checked = False
 
 # Database functions
 @st.cache_data(ttl=3600)
@@ -167,13 +169,31 @@ def clean_sql(sql):
     return sql
 
 def setup_groq_client():
-    """Setup Groq client"""
+    """Setup Groq client with proper error handling"""
     try:
-        api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-        if not api_key:
-            return None
-        return Groq(api_key=api_key)
-    except:
+        # Try to get API key from multiple sources
+        api_key = None
+        
+        # First try Streamlit secrets
+        try:
+            api_key = st.secrets.get("GROQ_API_KEY")
+            if api_key:
+                st.session_state.api_key_checked = True
+                return Groq(api_key=api_key)
+        except:
+            pass
+        
+        # Then try environment variable
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            st.session_state.api_key_checked = True
+            return Groq(api_key=api_key)
+        
+        # No API key found
+        st.session_state.api_key_checked = True
+        return None
+    except Exception as e:
+        st.session_state.api_key_checked = True
         return None
 
 def generate_sql(question, client, schema):
@@ -399,6 +419,25 @@ def main():
                     os.remove(DB_PATH)
                 st.rerun()
         
+        # Setup Groq client and check API key
+        client = setup_groq_client()
+        if client:
+            st.success("✅ Groq API Connected")
+            st.session_state.client = client
+        else:
+            if st.session_state.api_key_checked:
+                st.error("❌ Groq API Key missing")
+                st.info("Please add GROQ_API_KEY to Streamlit secrets")
+                st.markdown("""
+                **How to fix:**
+                1. Click on "⋮" menu → Settings
+                2. Go to "Secrets" section
+                3. Add: `GROQ_API_KEY = "your-key-here"`
+                4. Click Save
+                """)
+            else:
+                st.info("⏳ Checking for API key...")
+        
         # Only load schema if database is initialized
         if st.session_state.db_initialized:
             with st.spinner("Loading database schema..."):
@@ -407,29 +446,28 @@ def main():
             # Display table info
             for table, info in table_info.items():
                 with st.expander(f"📋 {table.upper()}"):
-                    # Display columns
-                    for col in info["columns"]:
-                        st.write(f"• {col['name']} ({col['type']})")
-                    # Display row count
-                    if info["row_count"] > 0:
-                        st.write(f"**Rows:** {info['row_count']:,}")
+                    # Display columns safely
+                    if "columns" in info and info["columns"]:
+                        for col in info["columns"]:
+                            if "name" in col and "type" in col:
+                                st.write(f"• {col['name']} ({col['type']})")
+                            else:
+                                st.write("• Column info unavailable")
                     else:
-                        st.write("**Rows:** 0")
+                        st.write("No columns found")
+                    
+                    # Display row count
+                    if "row_count" in info:
+                        if info["row_count"] > 0:
+                            st.write(f"**Rows:** {info['row_count']:,}")
+                        else:
+                            st.write("**Rows:** 0")
+                    else:
+                        st.write("**Rows:** Unknown")
         else:
             schema = "Database is being built..."
             table_info = {}
             st.info("⏳ Database is being initialized...")
-        
-        # API Key status
-        st.divider()
-        st.title("🔑 API Status")
-        client = setup_groq_client()
-        if client:
-            st.success("✅ Groq API Connected")
-            st.session_state.client = client
-        else:
-            st.error("❌ Groq API Key missing")
-            st.info("Add GROQ_API_KEY to .env file or Streamlit secrets")
         
         # Query history
         if st.session_state.query_history:
@@ -452,34 +490,42 @@ def main():
         st.divider()
         st.subheader("💬 Ask a Question")
         
-        # Example questions
-        example_questions = [
-            "What is the average closing price of AAPL in 2023?",
-            "Which company has the highest revenue?",
-            "What was Tesla's EPS in Q1 2023?",
-            "How many companies are in the Tech sector?",
-            "Compare the average closing price of AAPL and MSFT in 2023",
-            "Which stock had the highest trading volume in 2023?"
-        ]
-        
-        selected_example = st.selectbox("Try an example:", [""] + example_questions)
-        
-        # Text input
-        question = st.text_area("Or type your own question:", 
-                               value=selected_example if selected_example else "",
-                               height=100,
-                               placeholder="e.g., What is the total volume for MSFT in 2023?")
-        
-        # Query button
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col2:
-            run_button = st.button("🚀 Run Query", use_container_width=True)
-        
-        # Process query
-        if run_button and question:
-            if not st.session_state.client:
-                st.error("❌ Groq API not configured. Please check your API key.")
-            else:
+        # Check if API key is available before allowing queries
+        if not st.session_state.client:
+            st.warning("⚠️ Groq API key not configured. Please add it in Settings → Secrets to enable queries.")
+            
+            # Show example of correct format
+            with st.expander("📝 How to add API key"):
+                st.code("""
+# In Streamlit Cloud Settings → Secrets, add:
+GROQ_API_KEY = "gsk_your_actual_key_here"
+                """, language="toml")
+        else:
+            # Example questions
+            example_questions = [
+                "What is the average closing price of AAPL in 2023?",
+                "Which company has the highest revenue?",
+                "What was Tesla's EPS in Q1 2023?",
+                "How many companies are in the Tech sector?",
+                "Compare the average closing price of AAPL and MSFT in 2023",
+                "Which stock had the highest trading volume in 2023?"
+            ]
+            
+            selected_example = st.selectbox("Try an example:", [""] + example_questions)
+            
+            # Text input
+            question = st.text_area("Or type your own question:", 
+                                   value=selected_example if selected_example else "",
+                                   height=100,
+                                   placeholder="e.g., What is the total volume for MSFT in 2023?")
+            
+            # Query button
+            col1, col2, col3 = st.columns([1, 1, 1])
+            with col2:
+                run_button = st.button("🚀 Run Query", use_container_width=True)
+            
+            # Process query
+            if run_button and question:
                 with st.spinner("🔄 Generating SQL and fetching results..."):
                     # Generate SQL
                     sql, error = generate_sql(question, st.session_state.client, schema)
