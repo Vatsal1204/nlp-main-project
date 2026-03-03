@@ -1,3 +1,21 @@
+import sys
+import traceback
+
+try:
+    import streamlit as st
+    import pandas as pd
+    import plotly.express as px
+    import plotly.graph_objects as go
+    import yfinance as yf
+    from groq import Groq
+    from dotenv import load_dotenv
+    import os
+    import sqlite3
+    from datetime import datetime
+except Exception as e:
+    print("IMPORT ERROR:", e)
+    print(traceback.format_exc())
+    raise e
 import os
 import sqlite3
 import streamlit as st
@@ -95,3 +113,4 @@ if not os.path.exists(DB_PATH):
         else:
             st.error("❌ Failed to build database. Please check the error above.")
             st.stop()
+
