@@ -134,20 +134,28 @@ with tab3:
         st.markdown("**Company Questions:**")
         st.write("• Show all tech companies")
         st.write("• Which company has the highest revenue?")
+        st.write("• Which company has the lowest revenue?")
         st.write("• Show me companies with revenue above 300B")
         st.write("• Which company has the most employees?")
+        st.write("• Companies with employees less than 200K")
         st.write("• What is Microsoft's market cap?")
         st.write("• Show me Amazon's data")
         st.write("• Companies in Retail sector")
+        st.write("• Which sector has the most companies?")
+        st.write("• Compare Apple and Microsoft revenue")
+        st.write("• Total revenue of all companies")
     
     with col2:
         st.markdown("**Earnings Questions:**")
         st.write("• What was Tesla's EPS in Q1 2023?")
+        st.write("• Show me all earnings for Tesla in 2023")
         st.write("• Apple's EPS in Q4 2023")
         st.write("• Show Microsoft's earnings")
         st.write("• Google Q2 2023 revenue")
+        st.write("• Average EPS for tech companies")
         st.write("• Nvidia EPS")
         st.write("• Meta earnings")
+        st.write("• What was Google's revenue in Q2 2023?")
     
     st.divider()
     
@@ -171,6 +179,12 @@ with tab3:
             st.success("✅ Company with highest revenue:")
             st.dataframe(result, use_container_width=True)
         
+        # Lowest revenue
+        elif "lowest revenue" in question_lower or "min revenue" in question_lower or "smallest revenue" in question_lower:
+            result = companies_df.nsmallest(1, "Revenue_B")[["Company", "Revenue_B", "Sector"]]
+            st.success("✅ Company with lowest revenue:")
+            st.dataframe(result, use_container_width=True)
+        
         # Revenue above threshold
         elif "revenue above" in question_lower or "revenue greater than" in question_lower or "revenue >" in question_lower:
             numbers = re.findall(r'\d+', question_lower)
@@ -186,6 +200,12 @@ with tab3:
         elif "most employees" in question_lower or "highest employees" in question_lower or "max employees" in question_lower:
             result = companies_df.nlargest(1, "Employees_K")[["Company", "Employees_K", "Sector"]]
             st.success("✅ Company with most employees:")
+            st.dataframe(result, use_container_width=True)
+        
+        # Employees less than 200K
+        elif ("employees less than" in question_lower or "employees <" in question_lower or "employees under" in question_lower) and ("200" in question_lower or "200k" in question_lower):
+            result = companies_df[companies_df["Employees_K"] < 200][["Company", "Employees_K", "Sector"]].sort_values("Employees_K")
+            st.success("✅ Companies with < 200K employees:")
             st.dataframe(result, use_container_width=True)
         
         # Market cap queries
@@ -209,6 +229,29 @@ with tab3:
                 result = companies_df[["Company", "Market_Cap_B"]].sort_values("Market_Cap_B", ascending=False)
                 st.success("✅ All Companies by Market Cap:")
             st.dataframe(result, use_container_width=True)
+        
+        # Compare Apple and Microsoft revenue
+        elif ("compare" in question_lower and "apple" in question_lower and "microsoft" in question_lower and "revenue" in question_lower):
+            result = companies_df[companies_df["Company"].isin(["Apple", "Microsoft"])][["Company", "Revenue_B"]]
+            st.success("✅ Apple vs Microsoft Revenue:")
+            st.dataframe(result, use_container_width=True)
+        
+        # Total revenue of all companies
+        elif ("total revenue" in question_lower and "all companies" in question_lower) or ("sum of revenue" in question_lower):
+            total = companies_df["Revenue_B"].sum()
+            st.success(f"✅ Total Revenue of All Companies: **${total}B**")
+            st.metric("Total Revenue", f"${total}B")
+        
+        # Which sector has the most companies
+        elif ("sector" in question_lower and "most companies" in question_lower) or ("largest sector" in question_lower):
+            sector_counts = companies_df["Sector"].value_counts().reset_index()
+            sector_counts.columns = ["Sector", "Count"]
+            st.success("✅ Number of Companies by Sector:")
+            st.dataframe(sector_counts, use_container_width=True)
+            
+            # Show the largest
+            largest = sector_counts.iloc[0]
+            st.info(f"🏆 **{largest['Sector']}** has the most companies ({largest['Count']})")
         
         # Specific company data
         elif "amazon" in question_lower and "data" in question_lower:
@@ -267,6 +310,12 @@ with tab3:
             st.success("✅ Tesla Q1 2023 Earnings:")
             st.dataframe(result, use_container_width=True)
         
+        # Show all earnings for Tesla in 2023
+        elif ("tesla" in question_lower and "all earnings" in question_lower) or ("tesla" in question_lower and "2023" in question_lower and "earnings" in question_lower):
+            result = earnings_df[earnings_df["Ticker"] == "TSLA"][["Quarter", "EPS", "Revenue_B"]]
+            st.success("✅ Tesla 2023 Earnings:")
+            st.dataframe(result, use_container_width=True)
+        
         # Apple EPS Q4 2023
         elif "apple" in question_lower and "eps" in question_lower and ("q4" in question_lower or "quarter 4" in question_lower):
             result = earnings_df[(earnings_df["Ticker"] == "AAPL") & (earnings_df["Quarter"] == "Q4-2023")][["Quarter", "EPS", "Revenue_B"]]
@@ -297,6 +346,19 @@ with tab3:
             st.success("✅ Meta Earnings:")
             st.dataframe(result, use_container_width=True)
         
+        # Google's revenue in Q2 2023
+        elif ("google" in question_lower and "revenue" in question_lower and ("q2" in question_lower or "quarter 2" in question_lower) and "2023" in question_lower):
+            result = earnings_df[(earnings_df["Ticker"] == "GOOGL") & (earnings_df["Quarter"] == "Q2-2023")][["Quarter", "Revenue_B"]]
+            st.success("✅ Google Q2 2023 Revenue:")
+            st.dataframe(result, use_container_width=True)
+        
+        # Average EPS for tech companies
+        elif ("average eps" in question_lower or "avg eps" in question_lower) and ("tech" in question_lower or "technology" in question_lower):
+            tech_tickers = companies_df[companies_df["Sector"] == "Tech"]["Ticker"].tolist()
+            avg_eps = earnings_df[earnings_df["Ticker"].isin(tech_tickers)]["EPS"].mean()
+            st.success(f"✅ Average EPS for Tech Companies: **{avg_eps:.2f}**")
+            st.metric("Average EPS", f"{avg_eps:.2f}")
+        
         # Quarter specific revenue
         elif "revenue" in question_lower and "q1" in question_lower and "2023" in question_lower:
             result = earnings_df[earnings_df["Quarter"] == "Q1-2023"][["Ticker", "Revenue_B"]].sort_values("Revenue_B", ascending=False)
@@ -309,13 +371,17 @@ with tab3:
             
             # Show suggestion based on keywords
             if "revenue" in question_lower:
-                st.write("💡 Try: 'Show companies with revenue above 300B'")
+                st.write("💡 Try: 'Show companies with revenue above 300B' or 'Total revenue of all companies'")
             elif "eps" in question_lower:
-                st.write("💡 Try: 'What was Tesla's EPS in Q1 2023?'")
+                st.write("💡 Try: 'What was Tesla's EPS in Q1 2023?' or 'Average EPS for tech companies'")
             elif "company" in question_lower or "companies" in question_lower:
-                st.write("💡 Try: 'Show all tech companies'")
+                st.write("💡 Try: 'Show all tech companies' or 'Which company has the lowest revenue?'")
             elif "sector" in question_lower:
-                st.write("💡 Try: 'Companies in Retail sector'")
+                st.write("💡 Try: 'Companies in Retail sector' or 'Which sector has the most companies?'")
+            elif "employee" in question_lower:
+                st.write("💡 Try: 'Companies with employees less than 200K' or 'Which company has the most employees?'")
+            elif "compare" in question_lower:
+                st.write("💡 Try: 'Compare Apple and Microsoft revenue'")
 
 # Footer
 st.divider()
