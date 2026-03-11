@@ -1,7 +1,7 @@
 # streamlit_app.py — NLP Financial Explorer
 # NLP Topics: Tokenization, Stopwords, Stemming/Lemmatization, POS Tagging,
 #             Sentiment Analysis, NER, Word Frequency, TF-IDF, N-grams,
-#             Text Similarity, Text Summarization, Chatbot (Gemini Flash)
+#             Text Similarity, Text Summarization, Chatbot (Groq LLaMA 3)
 
 import streamlit as st
 import pandas as pd
@@ -26,220 +26,63 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
-# ── Google Gemini (new SDK: google-genai) ────
+# ── AI Provider: Groq (free, works in India) ──
 try:
-    from google import genai as genai_client
-    GENAI_OK = True
+    from groq import Groq as _Groq
+    GROQ_PKG_OK = True
 except Exception:
-    GENAI_OK = False
+    GROQ_PKG_OK = False
 
-# ── Finance ───────────────────────────────────
-try:
-    import yfinance as yf
-    YFINANCE_OK = True
-except Exception:
-    YFINANCE_OK = False
+GENAI_OK = False  # Gemini not available in India free tier
 
-# ── NLTK downloads ───────────────────────────
-@st.cache_resource
-def download_nltk():
-    for pkg in ['punkt', 'stopwords', 'averaged_perceptron_tagger',
-                'maxent_ne_chunker', 'words', 'wordnet', 'punkt_tab',
-                'averaged_perceptron_tagger_eng']:
+# ─────────────────────────────────────────────
+# GROQ AI CLIENT
+# Get free key at console.groq.com
+# Add to Streamlit Secrets: GROQ_API_KEY = "gsk_..."
+# ─────────────────────────────────────────────
+def _get_secret(name):
+    val = os.environ.get(name, "")
+    if not val:
         try:
-            nltk.download(pkg, quiet=True)
+            val = st.secrets[name]
         except Exception:
             pass
-download_nltk()
+    return (val or "").strip()
 
-# ─────────────────────────────────────────────
-# PAGE CONFIG & CSS
-# ─────────────────────────────────────────────
-st.set_page_config(
-    page_title="NLP Financial Explorer",
-    page_icon="📰",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
-
-html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
-h1,h2,h3 { font-family: 'Syne', sans-serif; }
-.stApp { background: #f5f0e8; }
-.main .block-container { padding-top: 2rem; }
-
-section[data-testid="stSidebar"] {
-    background: #1a1a2e;
-    border-right: none;
-}
-section[data-testid="stSidebar"] * { color: #e8e0d0 !important; }
-
-.nlp-card {
-    background: #ffffff;
-    border: 2px solid #1a1a2e;
-    padding: 20px;
-    margin-bottom: 14px;
-    box-shadow: 4px 4px 0px #1a1a2e;
-}
-.nlp-card-accent {
-    background: #1a1a2e;
-    color: #f5f0e8;
-    border: 2px solid #1a1a2e;
-    padding: 20px;
-    margin-bottom: 14px;
-    box-shadow: 4px 4px 0px #e8a020;
-    line-height: 1.7;
-}
-.metric-pill {
-    display: inline-block;
-    background: #e8a020;
-    color: #1a1a2e;
-    font-family: 'IBM Plex Mono', monospace;
-    font-weight: 600;
-    font-size: 0.75rem;
-    padding: 3px 12px;
-    margin: 2px 2px;
-    border: 1.5px solid #1a1a2e;
-}
-.metric-pill.green { background: #4caf7d; color: white; }
-.metric-pill.red   { background: #e85020; color: white; }
-.metric-pill.blue  { background: #2060e8; color: white; }
-.metric-pill.gray  { background: #888;    color: white; }
-
-.token-box {
-    display: inline-block;
-    background: #f5f0e8;
-    border: 1.5px solid #1a1a2e;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.75rem;
-    padding: 3px 9px;
-    margin: 2px 2px;
-}
-.token-box.stop { background: #ffe4e4; border-color: #e85020; color: #e85020; text-decoration: line-through; }
-.token-box.stem { background: #e4f4e8; border-color: #4caf7d; }
-.token-box.lemma { background: #dce8ff; border-color: #2060e8; }
-
-.page-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 2.5rem;
-    font-weight: 800;
-    color: #1a1a2e;
-    line-height: 1.1;
-    margin-bottom: 4px;
-}
-.page-badge {
-    display: inline-block;
-    background: #e8a020;
-    color: #1a1a2e;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.68rem;
-    font-weight: 600;
-    padding: 3px 12px;
-    border: 1.5px solid #1a1a2e;
-    margin-bottom: 18px;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-}
-.sec-divider {
-    font-family: 'Syne', sans-serif;
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #1a1a2e;
-    border-bottom: 3px solid #1a1a2e;
-    padding-bottom: 6px;
-    margin: 24px 0 14px 0;
-}
-.info-box {
-    background: #fffbf0;
-    border-left: 4px solid #e8a020;
-    padding: 12px 16px;
-    margin: 10px 0;
-    font-size: 0.88rem;
-    color: #1a1a2e;
-    line-height: 1.6;
-}
-.sentiment-bar-wrap {
-    background: #e8e0d0;
-    border: 1.5px solid #1a1a2e;
-    height: 16px;
-    width: 100%;
-    margin: 6px 0;
-}
-.chat-user {
-    background: #1a1a2e;
-    color: #f5f0e8;
-    padding: 10px 16px;
-    margin: 8px 0;
-    font-size: 0.88rem;
-    max-width: 82%;
-    border-radius: 0 12px 12px 12px;
-}
-.chat-bot {
-    background: #ffffff;
-    color: #1a1a2e;
-    border: 2px solid #1a1a2e;
-    padding: 10px 16px;
-    margin: 8px 0 8px auto;
-    font-size: 0.88rem;
-    max-width: 88%;
-    border-radius: 12px 0 12px 12px;
-    box-shadow: 3px 3px 0px #e8a020;
-}
-.ner-tag {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 0.73rem;
-    font-family: 'IBM Plex Mono', monospace;
-    font-weight: 600;
-    margin: 2px;
-}
-textarea, input[type="text"] {
-    font-family: 'IBM Plex Mono', monospace !important;
-    font-size: 0.85rem !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# GEMINI AI CLIENT (Google — Free Forever)
-# ─────────────────────────────────────────────
 def get_gemini_key():
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if not key:
-        try:
-            key = st.secrets["GEMINI_API_KEY"]
-        except (KeyError, FileNotFoundError, Exception):
-            pass
-    return key.strip() if key else ""
+    return _get_secret("GEMINI_API_KEY")
 
 def ai_chat(messages, system="You are a helpful financial analyst.", max_tokens=700):
-    api_key = get_gemini_key()
-    if not api_key:
-        return "⚠️ Gemini API key not found. Add GEMINI_API_KEY to Streamlit Secrets. Get a FREE key at: aistudio.google.com/app/apikey"
-    if not GENAI_OK:
-        return "⚠️ google-genai package not installed. Check requirements.txt"
+    key = _get_secret("GROQ_API_KEY")
+    if not key:
+        return ("⚠️ No API key found.\n\n"
+                "Add your Groq key to Streamlit Secrets:\n"
+                "1. Go to console.groq.com → sign up free → API Keys → Create\n"
+                "2. In Streamlit: Settings → Secrets → add:\n"
+                "   GROQ_API_KEY = \"gsk_your_key_here\"\n"
+                "3. Reboot the app")
+    if not GROQ_PKG_OK:
+        return "⚠️ groq package not installed. Check requirements.txt"
     try:
-        client = genai_client.Client(api_key=api_key)
-        # Build prompt: system + conversation history + last user message
-        full_prompt = system + "\n\n"
-        for msg in messages:
-            role_label = "User" if msg["role"] == "user" else "Assistant"
-            full_prompt += f"{role_label}: {msg['content']}\n"
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=full_prompt,
+        client = _Groq(api_key=key)
+        resp = client.chat.completions.create(
+            model="llama3-8b-8192",
+            messages=[{"role": "system", "content": system}] + messages,
+            max_tokens=max_tokens,
+            temperature=0.4,
         )
-        return response.text
+        return resp.choices[0].message.content
     except Exception as e:
-        return f"⚠️ Gemini API error: {str(e)}"
+        err = str(e)
+        if "429" in err or "rate" in err.lower():
+            return "⚠️ Rate limit hit. Wait 30 seconds and try again. Groq free tier: 30 requests/minute."
+        if "401" in err or "auth" in err.lower():
+            return "⚠️ Invalid API key. Check your GROQ_API_KEY in Streamlit Secrets."
+        return f"⚠️ Error: {err}"
 
-# legacy alias so rest of code works unchanged
+# aliases
 groq_chat = ai_chat
-groq_client = bool(get_gemini_key())
+groq_client = bool(_get_secret("GROQ_API_KEY"))
 
 # ─────────────────────────────────────────────
 # SAMPLE FINANCIAL TEXTS
@@ -365,7 +208,7 @@ with st.sidebar:
     except Exception:
         _has_key = bool(os.environ.get("GEMINI_API_KEY", ""))
     status = "✅ Connected" if _has_key else "❌ Add key to Secrets"
-    st.markdown(f"<div style='font-size:0.73rem;color:#aaa;'>🔑 Gemini API: {status}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:0.73rem;color:#aaa;'>🔑 Groq API: {status}</div>", unsafe_allow_html=True)
     st.markdown("<div style='font-size:0.73rem;color:#888;margin-top:4px;'>📦 NLTK · TextBlob · sklearn · yfinance</div>", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════
@@ -387,8 +230,8 @@ if page == "🏠  Overview":
         ("🏷️", "Named Entity Recognition",   "ORG · GPE · PERSON · MONEY · Highlighted text",              "Auto-extract companies, people, locations, and dollar amounts."),
         ("📊", "Word Frequency & TF-IDF",    "Bag of Words · Term Frequency · TF-IDF · N-grams",            "Find the most important words and phrases statistically."),
         ("🔍", "Text Similarity",            "Cosine Similarity · TF-IDF Vectors · Heatmap",                "Measure how similar two financial documents are."),
-        ("📝", "Text Summarization",         "Extractive (TF-IDF) · Abstractive (Gemini Flash)",            "Condense long financial reports into key bullet points."),
-        ("🤖", "Financial Chatbot",          "LLM · Gemini Flash · Context-aware Q&A",                     "Ask any financial question in plain English."),
+        ("📝", "Text Summarization",         "Extractive (TF-IDF) · Abstractive (Groq LLaMA 3)",            "Condense long financial reports into key bullet points."),
+        ("🤖", "Financial Chatbot",          "LLM · Groq LLaMA 3 · Context-aware Q&A",                     "Ask any financial question in plain English."),
         ("📈", "Stock Data + NLP",           "yfinance · Real prices · Sentiment on news",                  "Combine live stock data with NLP analysis."),
     ]
 
@@ -888,7 +731,7 @@ elif page == "📝  Text Summarization":
                 st.error(str(e))
 
     with c2:
-        st.markdown('<div class="sec-divider">✨ Abstractive (Gemini Flash)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-divider">✨ Abstractive (Groq LLaMA 3)</div>', unsafe_allow_html=True)
         st.markdown("""<div class="info-box">AI generates <strong>new sentences</strong> capturing the core meaning.
         More natural and readable than extractive.</div>""", unsafe_allow_html=True)
 
@@ -912,27 +755,32 @@ elif page == "📝  Text Summarization":
                     system="You are a concise financial analyst. Be direct and factual.")
             st.markdown(f'<div class="nlp-card-accent">{result.replace(chr(10),"<br>")}</div>', unsafe_allow_html=True)
         else:
-            st.info("👆 Click to generate an AI summary using Gemini Flash.")
+            st.info("👆 Click to generate an AI summary using Groq LLaMA 3.")
 
 # ═══════════════════════════════════════════════════════
 # CHATBOT
 # ═══════════════════════════════════════════════════════
 elif page == "🤖  Financial Chatbot":
     st.markdown('<div class="page-title">Financial Q&A Chatbot</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-badge">Gemini Flash · Context-Aware · Financial NLP</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-badge">Groq LLaMA 3 · Context-Aware · Financial NLP</div>', unsafe_allow_html=True)
 
     st.markdown("""<div class="info-box">Ask any financial question in plain English.
-    Powered by <strong>Google Gemini</strong> — a fast, free AI model with deep financial knowledge.
+    Powered by <strong>Groq LLaMA 3</strong> — a fast, free AI model with deep financial knowledge.
     Optionally add a context document (e.g. a news article) for document-specific Q&A.
     </div>""", unsafe_allow_html=True)
 
-    if not get_gemini_key():
-        st.markdown("""<div class="nlp-card" style="border-color:#e85020;">
-        <div style="color:#e85020;font-weight:700;font-size:1.1rem;margin-bottom:8px;">⚠️ API Key Required</div>
-        <div style="font-size:0.86rem;color:#444;">Go to your Streamlit app → <strong>Settings → Secrets</strong><br>
-        Add: <code style="background:#f5f0e8;padding:2px 6px;">GEMINI_API_KEY = "your_key_here"</code><br>
-        Get a FREE key at <strong>aistudio.google.com/app/apikey</strong>
-        </div></div>""", unsafe_allow_html=True)
+    if not groq_client:
+        st.markdown("""<div class="nlp-card" style="border-color:#e85020;box-shadow:4px 4px 0 #e85020;">
+        <div style="color:#e85020;font-weight:800;font-size:1.1rem;margin-bottom:12px;">⚠️ Groq API Key Required</div>
+        <div style="font-size:0.9rem;color:#333;line-height:2.2;">
+        <strong>Step 1:</strong> Go to <a href="https://console.groq.com" target="_blank" style="color:#e8a020;font-weight:700;">console.groq.com</a> → Sign up free (Google login works)<br>
+        <strong>Step 2:</strong> Click <strong>API Keys → Create API Key</strong> → Copy the key<br>
+        <strong>Step 3:</strong> In your Streamlit app → <strong>Settings → Secrets</strong> → paste:<br>
+        <code style="background:#f5f0e8;padding:4px 12px;border:2px solid #1a1a2e;font-size:0.85rem;display:inline-block;margin:4px 0;">GROQ_API_KEY = "gsk_your_key_here"</code><br>
+        <strong>Step 4:</strong> Click <strong>Save</strong> → then <strong>Reboot app</strong>
+        </div>
+        <div style="margin-top:12px;font-size:0.8rem;color:#888;">✅ Free forever · Works in India · 30 req/min · No credit card</div>
+        </div>""", unsafe_allow_html=True)
         st.stop()
 
     with st.expander("📄 Provide a context document (for document Q&A)"):
