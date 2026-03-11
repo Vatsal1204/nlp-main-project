@@ -207,20 +207,24 @@ def get_groq_client():
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
         try:
-            api_key = st.secrets.get("GROQ_API_KEY", "")
-        except Exception:
+            api_key = st.secrets["GROQ_API_KEY"]
+        except (KeyError, FileNotFoundError):
             pass
-    if api_key:
-        return Groq(api_key=api_key)
+    if api_key and api_key.strip():
+        try:
+            return Groq(api_key=api_key.strip())
+        except Exception:
+            return None
     return None
 
 groq_client = get_groq_client()
 
 def groq_chat(messages, system="You are a helpful financial analyst.", max_tokens=700):
-    if not groq_client:
-        return "⚠️ Groq API key not configured. Add GROQ_API_KEY to Streamlit Secrets."
+    client = get_groq_client()
+    if not client:
+        return "⚠️ Groq API key not found. Make sure GROQ_API_KEY is saved in Streamlit Secrets (Settings → Secrets)."
     try:
-        resp = groq_client.chat.completions.create(
+        resp = client.chat.completions.create(
             model="llama3-8b-8192",
             messages=[{"role": "system", "content": system}] + messages,
             max_tokens=max_tokens,
@@ -228,7 +232,7 @@ def groq_chat(messages, system="You are a helpful financial analyst.", max_token
         )
         return resp.choices[0].message.content
     except Exception as e:
-        return f"⚠️ API error: {str(e)}"
+        return f"⚠️ Groq API error: {str(e)}"
 
 # ─────────────────────────────────────────────
 # SAMPLE FINANCIAL TEXTS
@@ -336,7 +340,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    page = st.radio("", [
+    page = st.radio("Navigate", [
         "🏠  Overview",
         "✂️  Text Preprocessing",
         "😊  Sentiment Analysis",
@@ -349,7 +353,11 @@ with st.sidebar:
     ], label_visibility="collapsed")
 
     st.markdown("---")
-    status = "✅ Connected" if groq_client else "❌ Add key to Secrets"
+    try:
+        _has_key = bool(st.secrets.get("GROQ_API_KEY", "") or os.environ.get("GROQ_API_KEY", ""))
+    except Exception:
+        _has_key = bool(os.environ.get("GROQ_API_KEY", ""))
+    status = "✅ Connected" if _has_key else "❌ Add key to Secrets"
     st.markdown(f"<div style='font-size:0.73rem;color:#aaa;'>🔑 Groq API: {status}</div>", unsafe_allow_html=True)
     st.markdown("<div style='font-size:0.73rem;color:#888;margin-top:4px;'>📦 NLTK · TextBlob · sklearn · yfinance</div>", unsafe_allow_html=True)
 
