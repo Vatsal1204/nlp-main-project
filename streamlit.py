@@ -66,7 +66,7 @@ def ai_chat(messages, system="You are a helpful financial analyst.", max_tokens=
     try:
         client = _Groq(api_key=key)
         resp = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "system", "content": system}] + messages,
             max_tokens=max_tokens,
             temperature=0.4,
