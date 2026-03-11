@@ -1,7 +1,7 @@
 # streamlit_app.py — NLP Financial Explorer
 # NLP Topics: Tokenization, Stopwords, Stemming/Lemmatization, POS Tagging,
 #             Sentiment Analysis, NER, Word Frequency, TF-IDF, N-grams,
-#             Text Similarity, Text Summarization, Chatbot (Groq LLaMA 3)
+#             Text Similarity, Text Summarization, Chatbot (Gemini Flash)
 
 import streamlit as st
 import pandas as pd
@@ -25,8 +25,13 @@ from textblob import TextBlob
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ── Groq ─────────────────────────────────────
-from groq import Groq
+
+# ── Google Gemini (free forever) ─────────────
+try:
+    import google.generativeai as genai
+    GENAI_OK = True
+except Exception:
+    GENAI_OK = False
 
 # ── Finance ───────────────────────────────────
 try:
@@ -200,39 +205,43 @@ textarea, input[type="text"] {
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# GROQ CLIENT
+# GEMINI AI CLIENT (Google — Free Forever)
 # ─────────────────────────────────────────────
-@st.cache_resource
-def get_groq_client():
-    api_key = os.environ.get("GROQ_API_KEY", "")
-    if not api_key:
+def get_gemini_key():
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
         try:
-            api_key = st.secrets["GROQ_API_KEY"]
-        except (KeyError, FileNotFoundError):
+            key = st.secrets["GEMINI_API_KEY"]
+        except (KeyError, FileNotFoundError, Exception):
             pass
-    if api_key and api_key.strip():
-        try:
-            return Groq(api_key=api_key.strip())
-        except Exception:
-            return None
-    return None
+    return key.strip() if key else ""
 
-groq_client = get_groq_client()
-
-def groq_chat(messages, system="You are a helpful financial analyst.", max_tokens=700):
-    client = get_groq_client()
-    if not client:
-        return "⚠️ Groq API key not found. Make sure GROQ_API_KEY is saved in Streamlit Secrets (Settings → Secrets)."
+def ai_chat(messages, system="You are a helpful financial analyst.", max_tokens=700):
+    api_key = get_gemini_key()
+    if not api_key:
+        return "⚠️ Gemini API key not found. Add GEMINI_API_KEY to Streamlit Secrets. Get a FREE key at: aistudio.google.com/app/apikey"
+    if not GENAI_OK:
+        return "⚠️ google-generativeai package not installed. Add it to requirements.txt"
     try:
-        resp = client.chat.completions.create(
-            model="llama3-8b-8192",
-            messages=[{"role": "system", "content": system}] + messages,
-            max_tokens=max_tokens,
-            temperature=0.4,
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=system
         )
-        return resp.choices[0].message.content
+        # Build conversation history
+        history = []
+        for msg in messages[:-1]:
+            role = "user" if msg["role"] == "user" else "model"
+            history.append({"role": role, "parts": [msg["content"]]})
+        chat = model.start_chat(history=history)
+        response = chat.send_message(messages[-1]["content"])
+        return response.text
     except Exception as e:
-        return f"⚠️ Groq API error: {str(e)}"
+        return f"⚠️ Gemini API error: {str(e)}"
+
+# legacy alias so rest of code works unchanged
+groq_chat = ai_chat
+groq_client = bool(get_gemini_key())
 
 # ─────────────────────────────────────────────
 # SAMPLE FINANCIAL TEXTS
@@ -354,11 +363,11 @@ with st.sidebar:
 
     st.markdown("---")
     try:
-        _has_key = bool(st.secrets.get("GROQ_API_KEY", "") or os.environ.get("GROQ_API_KEY", ""))
+        _has_key = bool(st.secrets.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", ""))
     except Exception:
-        _has_key = bool(os.environ.get("GROQ_API_KEY", ""))
+        _has_key = bool(os.environ.get("GEMINI_API_KEY", ""))
     status = "✅ Connected" if _has_key else "❌ Add key to Secrets"
-    st.markdown(f"<div style='font-size:0.73rem;color:#aaa;'>🔑 Groq API: {status}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:0.73rem;color:#aaa;'>🔑 Gemini API: {status}</div>", unsafe_allow_html=True)
     st.markdown("<div style='font-size:0.73rem;color:#888;margin-top:4px;'>📦 NLTK · TextBlob · sklearn · yfinance</div>", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════
@@ -380,8 +389,8 @@ if page == "🏠  Overview":
         ("🏷️", "Named Entity Recognition",   "ORG · GPE · PERSON · MONEY · Highlighted text",              "Auto-extract companies, people, locations, and dollar amounts."),
         ("📊", "Word Frequency & TF-IDF",    "Bag of Words · Term Frequency · TF-IDF · N-grams",            "Find the most important words and phrases statistically."),
         ("🔍", "Text Similarity",            "Cosine Similarity · TF-IDF Vectors · Heatmap",                "Measure how similar two financial documents are."),
-        ("📝", "Text Summarization",         "Extractive (TF-IDF) · Abstractive (Groq LLaMA 3)",            "Condense long financial reports into key bullet points."),
-        ("🤖", "Financial Chatbot",          "LLM · Groq LLaMA 3 · Context-aware Q&A",                     "Ask any financial question in plain English."),
+        ("📝", "Text Summarization",         "Extractive (TF-IDF) · Abstractive (Gemini Flash)",            "Condense long financial reports into key bullet points."),
+        ("🤖", "Financial Chatbot",          "LLM · Gemini Flash · Context-aware Q&A",                     "Ask any financial question in plain English."),
         ("📈", "Stock Data + NLP",           "yfinance · Real prices · Sentiment on news",                  "Combine live stock data with NLP analysis."),
     ]
 
@@ -881,7 +890,7 @@ elif page == "📝  Text Summarization":
                 st.error(str(e))
 
     with c2:
-        st.markdown('<div class="sec-divider">✨ Abstractive (Groq LLaMA 3)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-divider">✨ Abstractive (Gemini Flash)</div>', unsafe_allow_html=True)
         st.markdown("""<div class="info-box">AI generates <strong>new sentences</strong> capturing the core meaning.
         More natural and readable than extractive.</div>""", unsafe_allow_html=True)
 
@@ -905,26 +914,26 @@ elif page == "📝  Text Summarization":
                     system="You are a concise financial analyst. Be direct and factual.")
             st.markdown(f'<div class="nlp-card-accent">{result.replace(chr(10),"<br>")}</div>', unsafe_allow_html=True)
         else:
-            st.info("👆 Click to generate an AI summary using Groq LLaMA 3.")
+            st.info("👆 Click to generate an AI summary using Gemini Flash.")
 
 # ═══════════════════════════════════════════════════════
 # CHATBOT
 # ═══════════════════════════════════════════════════════
 elif page == "🤖  Financial Chatbot":
     st.markdown('<div class="page-title">Financial Q&A Chatbot</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-badge">Groq LLaMA 3 · Context-Aware · Financial NLP</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-badge">Gemini Flash · Context-Aware · Financial NLP</div>', unsafe_allow_html=True)
 
     st.markdown("""<div class="info-box">Ask any financial question in plain English.
-    Powered by <strong>Groq's LLaMA 3</strong> (8B) — a large language model with deep financial knowledge.
+    Powered by <strong>Google Gemini</strong> — a fast, free AI model with deep financial knowledge.
     Optionally add a context document (e.g. a news article) for document-specific Q&A.
     </div>""", unsafe_allow_html=True)
 
-    if not groq_client:
+    if not get_gemini_key():
         st.markdown("""<div class="nlp-card" style="border-color:#e85020;">
         <div style="color:#e85020;font-weight:700;font-size:1.1rem;margin-bottom:8px;">⚠️ API Key Required</div>
         <div style="font-size:0.86rem;color:#444;">Go to your Streamlit app → <strong>Settings → Secrets</strong><br>
-        Add: <code style="background:#f5f0e8;padding:2px 6px;">GROQ_API_KEY = "your_key_here"</code><br>
-        Get a free key at <strong>console.groq.com</strong>
+        Add: <code style="background:#f5f0e8;padding:2px 6px;">GEMINI_API_KEY = "your_key_here"</code><br>
+        Get a FREE key at <strong>aistudio.google.com/app/apikey</strong>
         </div></div>""", unsafe_allow_html=True)
         st.stop()
 
