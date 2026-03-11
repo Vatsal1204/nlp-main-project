@@ -26,9 +26,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
-# ── Google Gemini (free forever) ─────────────
+# ── Google Gemini (new SDK: google-genai) ────
 try:
-    import google.generativeai as genai
+    from google import genai as genai_client
     GENAI_OK = True
 except Exception:
     GENAI_OK = False
@@ -221,20 +221,18 @@ def ai_chat(messages, system="You are a helpful financial analyst.", max_tokens=
     if not api_key:
         return "⚠️ Gemini API key not found. Add GEMINI_API_KEY to Streamlit Secrets. Get a FREE key at: aistudio.google.com/app/apikey"
     if not GENAI_OK:
-        return "⚠️ google-generativeai package not installed. Add it to requirements.txt"
+        return "⚠️ google-genai package not installed. Check requirements.txt"
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=system
+        client = genai_client.Client(api_key=api_key)
+        # Build prompt: system + conversation history + last user message
+        full_prompt = system + "\n\n"
+        for msg in messages:
+            role_label = "User" if msg["role"] == "user" else "Assistant"
+            full_prompt += f"{role_label}: {msg['content']}\n"
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=full_prompt,
         )
-        # Build conversation history
-        history = []
-        for msg in messages[:-1]:
-            role = "user" if msg["role"] == "user" else "model"
-            history.append({"role": role, "parts": [msg["content"]]})
-        chat = model.start_chat(history=history)
-        response = chat.send_message(messages[-1]["content"])
         return response.text
     except Exception as e:
         return f"⚠️ Gemini API error: {str(e)}"
